@@ -1,5 +1,28 @@
 FROM nvidia/cuda:10.0-cudnn7-runtime-ubuntu16.04
 
+ENV TZ=America/Los_Angeles
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+ARG ssh_prv_key
+ARG ssh_pub_key
+
+RUN apt-get update && \
+    apt-get install -y \
+        git \
+        openssh-server \
+        libmysqlclient-dev
+
+# Authorize SSH Host
+RUN mkdir -p /root/.ssh && \
+    chmod 0700 /root/.ssh && \
+    ssh-keyscan github.com > /root/.ssh/known_hosts
+
+# Add the keys and set permissions
+RUN echo "$ssh_prv_key" > /root/.ssh/id_rsa && \
+    echo "$ssh_pub_key" > /root/.ssh/id_rsa.pub && \
+    chmod 600 /root/.ssh/id_rsa && \
+    chmod 600 /root/.ssh/id_rsa.pub
+
 ENV NVIDIA_REQUIRE_DRIVER "driver>=390"
 
 MAINTAINER Hejia Zhang <hjzh578@gmail.com>
@@ -158,6 +181,52 @@ RUN ["/bin/bash", "-c", \
   cmake -DODE_USE_MULTITHREAD=ON -DOSG_DIR=/usr/local/lib64/ .. && \
   make -j `nproc` && \
   make install"]
+# Setup catkin workspace
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    python-wstool python-catkin-tools && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+RUN mkdir -p $ROS_WS
+RUN ["/bin/bash", "-c", \
+  "cd $ROS_WS && \
+  wstool init $ROS_WS/src && \
+  catkin init && \
+  catkin config --extend /opt/ros/kinetic"]
+# clone required code stack and build
+COPY misc/openrave.rosinstall $ROS_WS
+RUN ["/bin/bash", "-c", \
+    "cd $ROS_WS/src && \
+    wstool merge $ROS_WS/openrave.rosinstall && \
+    wstool update && \
+    cd $ROS_WS && \
+    catkin build"]
+# install some useful tools
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    vim terminator xinput gdb curl wget winff firefox ipython-notebook && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+COPY misc/.vimrc $HOME/
+RUN ["/bin/bash", "-c", \
+     "mkdir -p $HOME/.vim/syntax && \
+     cd $HOME/.vim/syntax && \
+     wget https://raw.githubusercontent.com/hdima/python-syntax/master/syntax/python.vim"]
+RUN git clone https://github.com/VundleVim/Vundle.vim.git $HOME/.vim/bundle/Vundle.vim
+RUN vim +PluginInstall +qall
+RUN pip install jedi
+# setup pycharm
+RUN ["/bin/bash", "-c", \
+     "cd $DEV_WS && \
+     wget https://download.jetbrains.com/python/pycharm-professional-2020.2.2.tar.gz && \
+     tar xvf pycharm-professional-2020.2.2.tar.gz && \
+     mv pycharm-2020.2.2 pycharm && \
+     rm pycharm-professional-2020.2.2.tar.gz"]
+# setup clion
+RUN ["/bin/bash", "-c", \
+    "cd $DEV_WS && \
+    wget https://download.jetbrains.com/cpp/CLion-2020.3.tar.gz && \
+    tar xvf CLion-2020.3.tar.gz && \
+    mv clion-2020.3 clion && \
+    rm CLion-2020.3.tar.gz"]
 WORKDIR /root
 COPY docker-entrypoint.sh /root
 ENTRYPOINT ["/root/docker-entrypoint.sh"]

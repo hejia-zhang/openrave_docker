@@ -1,0 +1,4 @@
+- git: 
+    local-name: jaco_description
+    uri: git@github.com:hejia-zhang/jaco_description.git
+    version: master
